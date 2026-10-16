@@ -107,6 +107,35 @@ pw.addEventListener('keydown', e => { if(e.key === 'Enter') go.click(); });
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
+
+/* Self-updating, because the service worker alone is not enough.
+
+   A home-screen app on iOS can run its cached copy for a long time before the
+   browser gets round to re-checking sw.js, which is how a phone ends up
+   insisting it cannot read barcodes while the published build has had the
+   decoder in it for an hour. So the page asks outright: fetch a version
+   stamp, and if it differs from the one this device last ran, throw the
+   caches away and reload. Offline it fails quietly and the cached app opens
+   as before. */
+(async function checkForUpdate(){
+  const VER = 'df-ver';
+  try{
+    const res = await fetch('version.txt?t=' + Date.now(), {cache:'no-store'});
+    if(!res.ok) return;
+    const latest = (await res.text()).trim();
+    if(!latest) return;
+    const running = localStorage.getItem(VER);
+    if(running && running !== latest){
+      for(const key of await caches.keys()) await caches.delete(key);
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+      localStorage.setItem(VER, latest);
+      location.reload();
+      return;
+    }
+    localStorage.setItem(VER, latest);
+  }catch(e){ /* offline — carry on with what is cached */ }
+})();
 // remembered on this device, so it opens straight into the app next time
 try{
   const saved = localStorage.getItem(KEY);
