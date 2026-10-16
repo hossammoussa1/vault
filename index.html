@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f3d3a">
+<title>DrugFinder</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root{color-scheme:light}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100dvh;display:grid;place-items:center;background:#0f3d3a;
+    color:#fff;font-family:system-ui,'Segoe UI',Tahoma,sans-serif;padding:24px}
+  .card{width:min(92vw,380px);text-align:center}
+  .mark{font-size:52px;line-height:1}
+  h1{margin:10px 0 2px;font-size:25px}
+  p{margin:0 0 22px;opacity:.75;font-size:14px}
+  input{width:100%;padding:14px;border-radius:12px;border:1px solid #2b6b64;
+    background:#0b302e;color:#fff;font-size:16px;text-align:center}
+  button{width:100%;margin-top:12px;padding:14px;border:none;border-radius:12px;
+    background:#e9c46a;color:#0f3d3a;font-size:16px;font-weight:700;cursor:pointer}
+  button:disabled{opacity:.6;cursor:default}
+  .msg{margin-top:16px;font-size:13px;line-height:1.9;min-height:40px}
+  .bar{height:5px;border-radius:99px;background:#0b302e;overflow:hidden;margin-top:14px}
+  .bar i{display:block;height:100%;width:0;background:#e9c46a;transition:width .2s}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="mark">💊</div>
+  <h1>DrugFinder</h1>
+  <p>قاعدة المعلومات الدوائية</p>
+  <input id="pw" type="password" placeholder="كلمة السر" autocomplete="current-password" enterkeyhint="go">
+  <button id="go">فتح</button>
+  <div class="bar"><i id="bar"></i></div>
+  <div class="msg" id="msg"></div>
+</div>
+<script>
+const KEY = 'df-pw';
+const msg = document.getElementById('msg'), bar = document.getElementById('bar');
+const pw = document.getElementById('pw'), go = document.getElementById('go');
+
+function say(text){ msg.textContent = text; }
+
+async function openApp(password, quiet){
+  go.disabled = true;
+  say(quiet ? 'جاري الفتح…' : 'جاري التحميل…');
+  let buf;
+  try{
+    const res = await fetch('app.bin');
+    if(!res.ok) throw new Error('fetch');
+    // stream it so the bar means something on a slow phone connection
+    const total = +res.headers.get('content-length') || 0;
+    const reader = res.body.getReader();
+    const parts = []; let got = 0;
+    for(;;){
+      const {done, value} = await reader.read();
+      if(done) break;
+      parts.push(value); got += value.length;
+      if(total) bar.style.width = Math.round(got * 100 / total) + '%';
+    }
+    buf = await new Blob(parts).arrayBuffer();
+  }catch(e){
+    say('تعذّر تحميل البيانات. اتأكد من الاتصال وجرّب تاني.');
+    go.disabled = false; return;
+  }
+
+  say('جاري فك التشفير…');
+  const bytes = new Uint8Array(buf);
+  const salt = bytes.slice(0, 16), nonce = bytes.slice(16, 28), body = bytes.slice(28);
+  let plain;
+  try{
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(password),
+      'PBKDF2', false, ['deriveKey']);
+    const key = await crypto.subtle.deriveKey(
+      {name:'PBKDF2', salt, iterations: 310000, hash:'SHA-256'},
+      base, {name:'AES-GCM', length:256}, false, ['decrypt']);
+    plain = await crypto.subtle.decrypt({name:'AES-GCM', iv: nonce}, key, body);
+  }catch(e){
+    say('كلمة السر غلط.');
+    try{ localStorage.removeItem(KEY); }catch(_){}
+    go.disabled = false; return;
+  }
+
+  say('جاري التجهيز…');
+  let html;
+  try{
+    const stream = new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'));
+    html = await new Response(stream).text();
+  }catch(e){
+    say('المتصفح ده قديم شوية. جرّب كروم أو سفاري محدّث.');
+    go.disabled = false; return;
+  }
+  try{ localStorage.setItem(KEY, password); }catch(_){}
+  document.open(); document.write(html); document.close();
+}
+
+go.addEventListener('click', () => {
+  if(!pw.value) { pw.focus(); return; }
+  openApp(pw.value, false);
+});
+pw.addEventListener('keydown', e => { if(e.key === 'Enter') go.click(); });
+
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+// remembered on this device, so it opens straight into the app next time
+try{
+  const saved = localStorage.getItem(KEY);
+  if(saved){ pw.value = saved; openApp(saved, true); }
+}catch(_){}
+</script>
+</body>
+</html>
