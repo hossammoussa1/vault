@@ -1,7 +1,7 @@
 /* Cache everything on install, then never touch the network again — the
    point of this app is that a pharmacy counter with no signal still works.
    Bump CACHE when you publish a new build and the old one is thrown away. */
-const CACHE = 'drugfinder-92f94c586c4e';
+const CACHE = 'drugfinder-ea114b9d0e2e';
 const FILES = ['./', 'index.html', 'app.bin', 'manifest.webmanifest',
                'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 
